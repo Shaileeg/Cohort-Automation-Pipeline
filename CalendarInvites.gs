@@ -10,7 +10,7 @@ function sendInitialRegistrationCalendarInvites() {
   const now = new Date();
   const futureTime = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000)); 
   
-  const events = calendar.getEvents(now, futureTime, { search: "Partnership Course" });
+  const events = calendar.getEvents(now, futureTime, { search: " Course" });
   if (events.length === 0) return;
 
   detailsData.forEach((row, index) => {
