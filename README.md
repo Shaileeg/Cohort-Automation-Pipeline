@@ -1,7 +1,7 @@
 # Automated Cohort & Attendance Management Pipeline
 
 ## Why This Was Built
-After observing how manual tracking, human errors, and fragmented processes were causing bottlenecks and friction in cohort progression, I took the initiative to build a complete automated solution. This project completely streamlines the participant lifecycle—from initial registration and pre-task gating to attendance logging, milestone progression, and automated re-invites—to ensure smooth, error-free operations.
+After observing how manual tracking, human errors, and fragmented processes were causing bottlenecks and friction in cohort progression, I took the initiative to build a complete automated solution. This project completely streamlines the participant lifecycle from initial registration and pre-task gating to attendance logging, milestone progression, and automated re-invites to ensure smooth, error-free operations.
 
 ## ⏱️ Development Timeline & Scope
 * **Timeline:** Designed, coded, and deployed efficiently in just about **6 hours** total, moving rapidly from database structuring to a fully integrated multi-tab ETL and calendar-sync pipeline.
