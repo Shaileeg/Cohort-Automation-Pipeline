@@ -19,7 +19,7 @@ function sendMentorInvitationEmails() {
                     `Congratulations on reaching your milestones! We would love to invite you to become a mentor for our upcoming sessions.\n\n` +
                     `Please reply to this email with "Yes" if you would like to mentor, or "No" if you cannot make it.\n` +
                     `If you say Yes, you can also choose your track preference by including "Weekday" (WD) or "Weekend" (WE) in your reply.\n\n` +
-                    `Best regards,\nOrganizing Committee`;
+                    `Best regards,\nThe Partnership Team`;
 
       // Send the email
       MailApp.sendEmail(email, subject, message);

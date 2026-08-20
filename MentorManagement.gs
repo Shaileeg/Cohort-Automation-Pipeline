@@ -37,21 +37,21 @@ function processMentorEmailReplies() {
 
   detailsData.forEach((row, index) => {
     let email = String(row[2]).toLowerCase().trim(); // Column C
+    let internTrack = row[4];                          // Column E: Intern WE/WD
     let rowIndex = index + 2;
-    let currentStatus = String(row[6]);              // Column G
+    let currentStatus = String(row[6]);               // Column G
 
     if (responses[email] && currentStatus !== "Mentor Done") {
       let resp = responses[email];
 
       if (resp.decision === "No") {
-        detailsSheet.getRange(rowIndex, 7).setValue("No"); // Updates Column G to No
+        detailsSheet.getRange(rowIndex, 7).setValue("No"); 
       } else if (resp.decision === "Accepted") {
-        detailsSheet.getRange(rowIndex, 7).setValue("Mento..."); // Updates Column G to Active Mentor
+        detailsSheet.getRange(rowIndex, 7).setValue("Mentor"); // Fixed from "Mento..."
         
-        if (resp.preference) {
-          detailsSheet.getRange(rowIndex, 8).setValue(resp.preference); // Updates Column H (Mentor WD/WE)
-          sendMentorCalendarInvite(email, resp.preference);
-        }
+        let finalPreference = resp.preference ? resp.preference : internTrack;
+        detailsSheet.getRange(rowIndex, 8).setValue(finalPreference); // Column H
+        sendMentorCalendarInvite(email, finalPreference);
       }
     }
   });
@@ -65,7 +65,7 @@ function extractEmailAddress(fromField) {
 function sendMentorCalendarInvite(email, preference) {
   const calendar = CalendarApp.getDefaultCalendar();
   const now = new Date();
-  const futureTime = new Date(now.getTime() + (14 * 24 * 60 * 60 * 1000)); 
+  const futureTime = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000)); // Expanded to 30 days to match other scripts
   const events = calendar.getEvents(now, futureTime, { search: "Partnership Course" });
 
   for (let i = 0; i < events.length; i++) {
