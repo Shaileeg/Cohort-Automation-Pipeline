@@ -71,59 +71,27 @@ When building and deploying automation scripts that handle participant data, pri
 
 # End-to-End Cohort Operations & Automation Engine
 
-An open-source automation pipeline built with **JavaScript (Google Apps Script), Google Sheets, and AI-assisted workflows** to eliminate manual tracking overhead, streamline participant onboarding, and manage the complete intern-to-mentor lifecycle for the Partnership Course.
+An open-source automation pipeline built with **JavaScript (Google Apps Script), Google Sheets, and AI-assisted workflows** to eliminate manual tracking overhead, streamline participant onboarding, and manage the complete intern-to-mentor lifecycle for the Course.
 
 ---
 
 ## 🗺️ System Architecture & Workflow Pipeline
 
- [ Registration Form ] 
-         │
-         ▼ (User Submits Data)
- ┌──────────────────────────────────────────────┐
- | 1. REGISTRATION & ONBOARDING                 |
- |    • Google Sheets logs submission           |
- |    • Track preference analyzed (Weekday/End) |
- └──────────────────────┬───────────────────────┘
-                        │
-                        ▼ (Pre-Task Complete?)
-        ┌───────────────┴───────────────┐
-        │ NO                            │ YES
-        ▼                               ▼
- ┌───────────────┐               ┌──────────────────────────────────────┐
- | 5-DAY REMINDER|               | 2. PRE-TASK VERIFICATION             |
- | Script scans  |               | • Checkbox marked TRUE               |
- | pending users |               | • Status updated to "COMPLETED"      |
- | & emails them |               └──────────────────┬───────────────────┘
- └───────────────┘                                  │
-                                                    ▼
-                                 ┌──────────────────────────────────────┐
-                                 | 3. CALENDAR & INVITATION AUTOMATION  |
-                                 | • Auto-adds to Tech Check & Sessions |
-                                 | • Sends confirmation email & links   |
-                                 └──────────────────┬───────────────────┘
-                                                    │
-                                                    ▼ (Course Completion)
-                                 ┌──────────────────────────────────────┐
-                                 | 4. MASTERY EVALUATION & INTERN STAGE |
-                                 | • Evaluates attendance & engagement  |
-                                 | • Confirms course completion         |
-                                 └──────────────────┬───────────────────┘
-                                                    │
-                                                    ▼ (Excellence / Application)
-                                 ┌──────────────────────────────────────┐
-                                 | 5. MENTOR PATHWAY & TRANSITION       |
-                                 | • High-performing interns apply/opt  |
-                                 |   in for the Mentor Track            |
-                                 | • System flags them as "Mentor"      |
-                                 |   in the database                    |
-                                 └──────────────────┬───────────────────┘
-                                                    │
-                                                    ▼
-                                 ┌──────────────────────────────────────┐
-                                 | 6. MENTOR-LED OPERATIONS             |
-                                 | • Assigned to track future cohorts   |
-                                 | • Script updates calendar invites to |
-                                 |   include them as co-hosts/mentors   |
-                                 | • Feedback loops track mentor impact |
-                                 └──────────────────────────────────────┘
+graph TD
+    A[Registration Form] -->|User Submits Data| B(1. Registration & Onboarding)
+    B -->|Track Preference Analyzed| C{Pre-Task Complete?}
+    
+    C -->|NO| D[5-Day Reminder Trigger<br>Scans pending users & emails them]
+    C -->|YES| E(2. Pre-Task Verification<br>Status updated to COMPLETED)
+    
+    E --> F(3. Calendar & Invitation Automation<br>Auto-adds to Tech Check & Sessions)
+    F --> G(4. Mastery Evaluation & Intern Stage<br>Evaluates attendance & engagement)
+    
+    G --> H{Excellence / Application}
+    H -->|Applies / Qualifies| I(5. Mentor Pathway & Transition<br>System flags profile as Mentor)
+    
+    I --> J(6. Mentor-Led Operations<br>Assigned to future cohorts & updated permissions)
+
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style C fill:#ff9,stroke:#333,stroke-width:2px
+    style H fill:#ff9,stroke:#333,stroke-width:2px
