@@ -93,6 +93,6 @@ graph TD
     
     I --> J(6. Mentor-Led Operations<br>Assigned to future cohorts & updated permissions)
 
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style C fill:#ff9,stroke:#333,stroke-width:2px
-    style H fill:#ff9,stroke:#333,stroke-width:2px
+    style A fill:#4169E1,stroke:#333,stroke-width:2px,color:#fff
+    style C fill:#006400,stroke:#333,stroke-width:2px,color:#fff
+    style H fill:#006400,stroke:#333,stroke-width:2px,color:#fff
