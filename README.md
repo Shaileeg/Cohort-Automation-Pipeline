@@ -67,3 +67,57 @@ When building and deploying automation scripts that handle participant data, pri
 
 * **My Role:** I acted as the sole Lead Architect and Developer. I identified the operational friction caused by human error, mapped out the database schemas, defined the core business rules, structured the Google Sheets multi-tab layout, and directed the exact logic flow required for each automation loop.
 * **How AI Was Used:** **Google Gemini** was utilized as an AI technical co-pilot and collaborator throughout development. AI assisted in writing, optimizing, and debugging the JavaScript syntax for Google Apps Script, translating my functional requirements and workflow logic into clean, modular code over a rapid 6-hour build cycle.
+
+
+The diagram below illustrates the end-to-end data flow and automated lifecycle engineered for the Course:
+
+[ Registration Form ] 
+         │
+         ▼ (User Submits Data)
+ ┌──────────────────────────────────────────────┐
+ | 1. REGISTRATION & ONBOARDING                 |
+ |    • Google Sheets logs submission           |
+ |    • Track preference analyzed (Weekday/End) |
+ └──────────────────────┬───────────────────────┘
+                        │
+                        ▼ (Pre-Task Complete?)
+        ┌───────────────┴───────────────┐
+        │ NO                            │ YES
+        ▼                               ▼
+ ┌───────────────┐               ┌──────────────────────────────────────┐
+ | 5-DAY REMINDER|               | 2. PRE-TASK VERIFICATION             |
+ | Script scans  |               | • Checkbox marked TRUE               |
+ | pending users |               | • Status updated to "COMPLETED"      |
+ | & emails them |               └──────────────────┬───────────────────┘
+ └───────────────┘                                  │
+                                                    ▼
+                                 ┌──────────────────────────────────────┐
+                                 | 3. CALENDAR & INVITATION AUTOMATION  |
+                                 | • Auto-adds to Tech Check & Sessions |
+                                 | • Sends confirmation email & links   |
+                                 └──────────────────┬───────────────────┘
+                                                    │
+                                                    ▼ (Course Completion)
+                                 ┌──────────────────────────────────────┐
+                                 | 4. MASTERY EVALUATION & INTERN STAGE |
+                                 | • Evaluates attendance & engagement  |
+                                 | • Confirms course completion         |
+                                 └──────────────────┬───────────────────┘
+                                                    │
+                                                    ▼ (Excellence / Application)
+                                 ┌──────────────────────────────────────┐
+                                 | 5. MENTOR PATHWAY & TRANSITION       |
+                                 | • High-performing interns apply/opt  |
+                                 |   in for the Mentor Track            |
+                                 | • System flags them as "Mentor"      |
+                                 |   in the database                    |
+                                 └──────────────────┬───────────────────┘
+                                                    │
+                                                    ▼
+                                 ┌──────────────────────────────────────┐
+                                 | 6. MENTOR-LED OPERATIONS             |
+                                 | • Assigned to track future cohorts   |
+                                 | • Script updates calendar invites to |
+                                 |   include them as co-hosts/mentors   |
+                                 | • Feedback loops track mentor impact |
+                                 └──────────────────────────────────────┘
