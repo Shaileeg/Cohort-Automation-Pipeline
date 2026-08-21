@@ -77,6 +77,7 @@ An open-source automation pipeline built with **JavaScript (Google Apps Script),
 
 ## 🗺️ System Architecture & Workflow Pipeline
 
+```mermaid
 graph TD
     A[Registration Form] -->|User Submits Data| B(1. Registration & Onboarding)
     B -->|Track Preference Analyzed| C{Pre-Task Complete?}
