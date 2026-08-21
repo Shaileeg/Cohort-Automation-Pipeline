@@ -1,3 +1,8 @@
+/**
+ * Partnership Course Automation Engine
+ * Manages calendar invites, track separation, and intern tracking.
+ */
+
 function sendInitialRegistrationCalendarInvites() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const detailsSheet = ss.getSheetByName("Intern Details");
@@ -9,28 +14,27 @@ function sendInitialRegistrationCalendarInvites() {
   const calendar = CalendarApp.getDefaultCalendar();
   const now = new Date();
   const futureTime = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000)); 
-  
-  const events = calendar.getEvents(now, futureTime, { search: " Course" });
-  if (events.length === 0) return;
 
   detailsData.forEach((row, index) => {
     let email = String(row[2]).toLowerCase().trim(); // Column C: Email
-    let internPreference = String(row[4]).toUpperCase(); // Column E: Intern WE/WD
+    let internPreference = String(row[4]).toUpperCase().trim(); // Column E: Intern WE/WD
     let calendarInviteStatus = String(row[5]); // Column F: Calendar Invite status
     let rowIndex = index + 2;
 
     if (email && (calendarInviteStatus === "Send" || calendarInviteStatus === "")) {
-      for (let i = 0; i < events.length; i++) {
-        let event = events[i];
-        let eventDateObj = event.getStartTime();
-        let dayOfWeek = eventDateObj.getDay(); 
-        let sessionType = (dayOfWeek === 0 || dayOfWeek === 6) ? "WE" : "WD";
+      // STRICT SEARCH: Search ONLY for the specific track title to avoid grabbing unrelated meetings
+      let targetSearchTerm = (internPreference === "WE") ? "Partnership Course Weekend" : "Partnership Course Weekday";
+      
+      let matchingEvents = calendar.getEvents(now, futureTime, { search: targetSearchTerm });
+      
+      // Filter further to ensure exact title match and prevent pulling in unrelated calendar entries
+      let validEvents = matchingEvents.filter(event => event.getTitle().trim() === targetSearchTerm);
 
-        if (sessionType === internPreference) {
+      if (validEvents.length > 0) {
+        validEvents.forEach(event => {
           event.addGuest(email);
-          detailsSheet.getRange(rowIndex, 6).setValue("Sent"); 
-          break;
-        }
+        });
+        detailsSheet.getRange(rowIndex, 6).setValue("Sent"); 
       }
     }
   });
