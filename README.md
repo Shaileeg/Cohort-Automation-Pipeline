@@ -69,9 +69,15 @@ When building and deploying automation scripts that handle participant data, pri
 * **How AI Was Used:** **Google Gemini** was utilized as an AI technical co-pilot and collaborator throughout development. AI assisted in writing, optimizing, and debugging the JavaScript syntax for Google Apps Script, translating my functional requirements and workflow logic into clean, modular code over a rapid 6-hour build cycle.
 
 
-The diagram below illustrates the end-to-end data flow and automated lifecycle engineered for the Course:
+# End-to-End Cohort Operations & Automation Engine
 
-[ Registration Form ] 
+An open-source automation pipeline built with **JavaScript (Google Apps Script), Google Sheets, and AI-assisted workflows** to eliminate manual tracking overhead, streamline participant onboarding, and manage the complete intern-to-mentor lifecycle for the Partnership Course.
+
+---
+
+## 🗺️ System Architecture & Workflow Pipeline
+
+ [ Registration Form ] 
          │
          ▼ (User Submits Data)
  ┌──────────────────────────────────────────────┐
