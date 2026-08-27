@@ -451,6 +451,13 @@ function runScheduledWeekendAttendance() {
  * Run this once from the Apps Script editor to install the weekly triggers.
  * Deletes any old daily/manual triggers on these handler names first, so
  * re-running this is safe and won't create duplicates.
+ *
+ * Times below assume the Apps Script project's timezone is set to Nepal
+ * (Asia/Kathmandu, UTC+5:45) - check Project Settings > Time zone before
+ * relying on this. Computed from actual class times:
+ *   Weekday: 11:00-13:00 UTC = 4:45pm-6:45pm Nepal time (class ends 6:45pm)
+ *   Weekend: 14:00-16:00 UTC = 7:45pm-9:45pm Nepal time (class ends 9:45pm)
+ * Both stay on the same calendar day in Nepal time, no Thursday/Sunday shift needed.
  */
 function createScheduledAttendanceTriggers() {
   let triggers = ScriptApp.getProjectTriggers();
@@ -461,17 +468,17 @@ function createScheduledAttendanceTriggers() {
     }
   });
 
-  // Run in the evening after class - adjust atHour() to whatever fits your session times
-  ScriptApp.newTrigger("runScheduledWeekdayAttendance").timeBased().onWeekDay(ScriptApp.WeekDay.THURSDAY).atHour(18).create();
-  ScriptApp.newTrigger("runScheduledWeekendAttendance").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(18).create();
+  // ~1 hour after class ends: Weekday ends 6:45pm -> 7:45pm; Weekend ends 9:45pm -> 10:45pm
+  ScriptApp.newTrigger("runScheduledWeekdayAttendance").timeBased().onWeekDay(ScriptApp.WeekDay.THURSDAY).atHour(19).nearMinute(45).create();
+  ScriptApp.newTrigger("runScheduledWeekendAttendance").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(22).nearMinute(45).create();
 
-  // Reinvite check (ReinviteAutomation.gs) runs a bit later, after attendance is processed
+  // Reinvite check (ReinviteAutomation.gs) runs ~1 hour after attendance is processed
   triggers.forEach(tr => {
     let fn = tr.getHandlerFunction();
     if (fn === "runScheduledWeekdayReinviteCheck" || fn === "runScheduledWeekendReinviteCheck") {
       ScriptApp.deleteTrigger(tr);
     }
   });
-  ScriptApp.newTrigger("runScheduledWeekdayReinviteCheck").timeBased().onWeekDay(ScriptApp.WeekDay.THURSDAY).atHour(20).create();
-  ScriptApp.newTrigger("runScheduledWeekendReinviteCheck").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(20).create();
+  ScriptApp.newTrigger("runScheduledWeekdayReinviteCheck").timeBased().onWeekDay(ScriptApp.WeekDay.THURSDAY).atHour(20).nearMinute(45).create();
+  ScriptApp.newTrigger("runScheduledWeekendReinviteCheck").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(23).nearMinute(45).create();
 }
