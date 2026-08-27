@@ -1,9 +1,17 @@
+/**
+ * Intern Details extra columns used by the reinvite system (beyond the original A-H):
+ * Column I: Mentor invite attempts (number, max 3)
+ * Column J: Course reinvite attempts (number, max 3) - used by handleCohortNoShow in AttandanceTracker.gs
+ * Column K: Course reinvite status (e.g. "Reinvited - attempt 2", "Stopped - No response after 3 invites")
+ */
+const MAX_MENTOR_INVITE_ATTEMPTS = 3;
+
 function sendMentorInvitationEmails() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const detailsSheet = ss.getSheetByName("Intern Details");
   if (!detailsSheet || detailsSheet.getLastRow() <= 1) return;
 
-  let detailsRange = detailsSheet.getRange(2, 1, detailsSheet.getLastRow() - 1, 8);
+  let detailsRange = detailsSheet.getRange(2, 1, detailsSheet.getLastRow() - 1, 9);
   let detailsData = detailsRange.getValues();
 
   detailsData.forEach((row, index) => {
@@ -11,9 +19,20 @@ function sendMentorInvitationEmails() {
     let name = row[1];                               // Column B: Name
     let rowIndex = index + 2;
     let currentStatus = String(row[6]);              // Column G: Mentor status
+    let attempts = Number(row[8]) || 0;               // Column I: Mentor invite attempts
 
-    // If they hit their milestone but haven't been emailed yet
-    if (currentStatus === "Eligible" || currentStatus === "") {
+    // Only invite interns explicitly marked "Eligible" (set automatically once they
+    // hit MASTERED in AttandanceTracker.gs, or reset to "Eligible" by
+    // refreshDeclinedMentorInvites() for a monthly re-invite). A blank status just
+    // means they haven't finished the cohort yet, so it must NOT trigger an invite.
+    if (currentStatus === "Eligible") {
+      if (attempts >= MAX_MENTOR_INVITE_ATTEMPTS) {
+        // Safety net - shouldn't normally hit this since refreshDeclinedMentorInvites
+        // stops resetting people to "Eligible" once they're at the cap.
+        detailsSheet.getRange(rowIndex, 7).setValue(`Declined - stopped after ${attempts} invites`);
+        return;
+      }
+
       let subject = "Invitation to become a Mentor";
       let message = `Hi ${name},\n\n` +
                     `Congratulations on reaching your milestones! We would love to invite you to become a mentor for our upcoming sessions.\n\n` +
@@ -24,10 +43,45 @@ function sendMentorInvitationEmails() {
       // Send the email
       MailApp.sendEmail(email, subject, message);
 
-      // Update status to prevent spamming
+      // Update status to prevent spamming, and record this attempt
       detailsSheet.getRange(rowIndex, 7).setValue("Invite Sent");
+      detailsSheet.getRange(rowIndex, 9).setValue(attempts + 1); // Column I
     }
   });
+}
+
+/**
+ * Run this once a month (e.g. alongside your monthly attendance setup). Anyone who
+ * declined ("No") gets bumped back to "Eligible" so sendMentorInvitationEmails()
+ * re-invites them next run - unless they're already at the 3-attempt cap, in which
+ * case we stop and write a clear final status instead of inviting them again.
+ */
+function refreshDeclinedMentorInvites() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const detailsSheet = ss.getSheetByName("Intern Details");
+  if (!detailsSheet || detailsSheet.getLastRow() <= 1) return;
+
+  let detailsData = detailsSheet.getRange(2, 1, detailsSheet.getLastRow() - 1, 9).getValues();
+
+  detailsData.forEach((row, index) => {
+    let rowIndex = index + 2;
+    let mentorStatus = String(row[6] || "").trim(); // Column G
+    let attempts = Number(row[8]) || 0;              // Column I
+
+    if (mentorStatus !== "No") return; // only touch people who actively declined
+
+    if (attempts >= MAX_MENTOR_INVITE_ATTEMPTS) {
+      detailsSheet.getRange(rowIndex, 7).setValue(`Declined - stopped after ${attempts} invites`);
+    } else {
+      detailsSheet.getRange(rowIndex, 7).setValue("Eligible"); // picked up by next sendMentorInvitationEmails run
+    }
+  });
+}
+
+function createMonthlyMentorReinviteTrigger() {
+  let triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(tr => { if (tr.getHandlerFunction() === "refreshDeclinedMentorInvites") ScriptApp.deleteTrigger(tr); });
+  ScriptApp.newTrigger("refreshDeclinedMentorInvites").timeBased().onMonthDay(1).atHour(6).create();
 }
 
 function processMentorEmailReplies() {
@@ -96,6 +150,10 @@ function processMentorEmailReplies() {
         
         // Adds both new and old participants into the exact same shared event matching their track
         sendSharedMentorCalendarInvite(email, finalPreference);
+
+        // Auto-grant sheet editor access and email them their live attendance tab link
+        // (grantMentorTabAccess lives in AttandanceTracker.gs)
+        grantMentorTabAccess(email, finalPreference);
       }
     }
   });
@@ -114,6 +172,7 @@ function sendSharedMentorCalendarInvite(email, preference) {
   // Searches for your shared master session event
   const events = calendar.getEvents(now, futureTime, { search: "Partnership Course" });
 
+  let found = false;
   for (let i = 0; i < events.length; i++) {
     let event = events[i];
     let eventDateObj = event.getStartTime();
@@ -124,8 +183,15 @@ function sendSharedMentorCalendarInvite(email, preference) {
     if (sessionType === preference) {
       // Adds them as a guest to the shared event, granting them the exact same Google Meet link
       event.addGuest(email);
+      found = true;
       break; 
     }
+  }
+
+  if (!found) {
+    // No sessions exist for this track yet - create them with a guaranteed Meet link
+    // instead of silently failing to invite the mentor. (Lives in PreTaskTracker.gs)
+    addStudentToAllFourCourseSessions(email, preference === "WE");
   }
 }
 

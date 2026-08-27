@@ -102,7 +102,7 @@ function sendPreTaskReminders() {
   }
 
   const regData = regSheet.getDataRange().getValues();
-  const preTaskSubmissionLink = "https://your-pretask-submission-link-here.com"; // Replace with your actual pre-task link
+  const preTaskSubmissionLink = "https://docs.google.com/forms/d/e/1FAIpQLScnXYgjSKsq0VKA_BsJWJpDK1HgGQ1IOo3KFuax31ohd_iOew/viewform?usp=send_form";
   
   let reminderCount = 0;
 
@@ -138,6 +138,34 @@ function sendPreTaskReminders() {
   Logger.log(`Successfully sent ${reminderCount} pre-task reminder emails for the 5-day mark.`);
 }
 
+/**
+ * Creates a calendar event with a guaranteed Google Meet link, via the
+ * Advanced Calendar Service - independent of whether the account has
+ * "auto-add conferencing" turned on. Returns the event's ID so the caller
+ * can fetch it back via CalendarApp.getEventById() to call addGuest() on it.
+ *
+ * REQUIRES: the "Calendar API" Advanced Service must be enabled for this
+ * Apps Script project (Editor > Services > + > Google Calendar API), and the
+ * underlying Google Calendar API enabled in the linked Cloud project.
+ */
+function createEventWithMeetLink(calendarId, title, description, startDate, endDate) {
+  let event = {
+    summary: title,
+    description: description,
+    start: { dateTime: startDate.toISOString(), timeZone: 'Etc/GMT' },
+    end: { dateTime: endDate.toISOString(), timeZone: 'Etc/GMT' },
+    conferenceData: {
+      createRequest: {
+        requestId: Utilities.getUuid(),
+        conferenceSolutionKey: { type: 'hangoutsMeet' }
+      }
+    }
+  };
+
+  let createdEvent = Calendar.Events.insert(event, calendarId, { conferenceDataVersion: 1 });
+  return createdEvent.id;
+}
+
 function getNextCohortFirstDay(isWeekend) {
   const now = new Date();
   let nextYear = now.getFullYear();
@@ -159,6 +187,7 @@ function getNextCohortFirstDay(isWeekend) {
 
 function addStudentToAllFourCourseSessions(email, isWeekend) {
   let calendar = CalendarApp.getDefaultCalendar();
+  let calendarId = calendar.getId();
   let firstSessionDate = getNextCohortFirstDay(isWeekend);
   let cohortType = isWeekend ? "Weekend" : "Weekday";
 
@@ -188,10 +217,14 @@ function addStudentToAllFourCourseSessions(email, isWeekend) {
     if (events.length > 0) {
       groupEvent = events[0];
     } else {
-      groupEvent = calendar.createEvent(eventTitle, eventDate, endDate, {
-        description: `Shared group course meeting link for Week ${week + 1}.`,
-        timeZone: 'Etc/GMT'
-      });
+      // Create via the Advanced Calendar Service so a Meet link is guaranteed,
+      // regardless of the account's own conferencing default.
+      let createdEventId = createEventWithMeetLink(
+        calendarId, eventTitle,
+        `Shared group course meeting link for Week ${week + 1}.`,
+        eventDate, endDate
+      );
+      groupEvent = calendar.getEventById(createdEventId);
     }
 
     groupEvent.addGuest(email);
@@ -200,6 +233,7 @@ function addStudentToAllFourCourseSessions(email, isWeekend) {
 
 function addStudentToGroupTechCheck(email, isWeekend) {
   let calendar = CalendarApp.getDefaultCalendar();
+  let calendarId = calendar.getId();
   let firstSessionDate = getNextCohortFirstDay(isWeekend);
   let cohortType = isWeekend ? "Weekend" : "Weekday";
   
@@ -226,10 +260,14 @@ function addStudentToGroupTechCheck(email, isWeekend) {
   if (events.length > 0) {
     groupEvent = events[0];
   } else {
-    groupEvent = calendar.createEvent(eventTitle, techCheckStart, techCheckEnd, {
-      description: 'Shared group technical check meeting before the course begins.',
-      timeZone: 'Etc/GMT'
-    });
+    // Create via the Advanced Calendar Service so a Meet link is guaranteed,
+    // regardless of the account's own conferencing default.
+    let createdEventId = createEventWithMeetLink(
+      calendarId, eventTitle,
+      'Shared group technical check meeting before the course begins.',
+      techCheckStart, techCheckEnd
+    );
+    groupEvent = calendar.getEventById(createdEventId);
   }
 
   groupEvent.addGuest(email);

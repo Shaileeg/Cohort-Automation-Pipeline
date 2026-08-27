@@ -22,8 +22,10 @@ function sendInitialRegistrationCalendarInvites() {
     let rowIndex = index + 2;
 
     if (email && (calendarInviteStatus === "Send" || calendarInviteStatus === "")) {
+      let isWeekend = (internPreference === "WE");
+
       // STRICT SEARCH: Search ONLY for the specific track title to avoid grabbing unrelated meetings
-      let targetSearchTerm = (internPreference === "WE") ? "Partnership Course Weekend" : "Partnership Course Weekday";
+      let targetSearchTerm = isWeekend ? "Partnership Course Weekend" : "Partnership Course Weekday";
       
       let matchingEvents = calendar.getEvents(now, futureTime, { search: targetSearchTerm });
       
@@ -34,8 +36,16 @@ function sendInitialRegistrationCalendarInvites() {
         validEvents.forEach(event => {
           event.addGuest(email);
         });
-        detailsSheet.getRange(rowIndex, 6).setValue("Sent"); 
+      } else {
+        // No sessions exist for this track yet this cohort - create all 4 with a
+        // guaranteed Meet link instead of silently skipping this person.
+        // (addStudentToAllFourCourseSessions lives in PreTaskTracker.gs)
+        addStudentToAllFourCourseSessions(email, isWeekend);
       }
+
+      // Mark Sent either way - previously this only happened inside the "found" branch,
+      // so anyone whose sessions didn't exist yet was silently retried forever.
+      detailsSheet.getRange(rowIndex, 6).setValue("Sent"); 
     }
   });
 }

@@ -66,7 +66,7 @@ When building and deploying automation scripts that handle participant data, pri
 ## 🤖 Development Process & AI Collaboration
 
 * **My Role:** I acted as the sole Lead Architect and Developer. I identified the operational friction caused by human error, mapped out the database schemas, defined the core business rules, structured the Google Sheets multi-tab layout, and directed the exact logic flow required for each automation loop.
-* **How AI Was Used:** **Google Gemini** was utilized as an AI technical co-pilot and collaborator throughout development. AI assisted in writing, optimizing, and debugging the JavaScript syntax for Google Apps Script, translating my functional requirements and workflow logic into clean, modular code over a rapid 6-hour build cycle.
+* **How AI Was Used:** **Google Gemini** & **CLaude** was utilized as an AI technical co-pilot and collaborator throughout development. AI assisted in writing, optimizing, and debugging the JavaScript syntax for Google Apps Script, translating my functional requirements and workflow logic into clean, modular code over a rapid 6-hour build cycle.
 
 
 ## 🗺️ System Architecture & Workflow Pipeline

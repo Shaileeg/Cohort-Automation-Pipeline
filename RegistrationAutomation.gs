@@ -1,5 +1,5 @@
 const FORM_LINKS = {
-  PRETASK: "[Link to Registration Form]" // Replace with your actual Pre-task form link
+  PRETASK: "Form Link" 
 };
 
 function onRegistrationFormSubmit(e) {
