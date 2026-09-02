@@ -1,50 +1,84 @@
 const FORM_LINKS = {
-  PRETASK: "Form Link" 
+  PRETASK: "https://docs.google.com/forms/d/e/1FAIpQLScnXYgjSKsq0VKA_BsJWJpDK1HgGQ1IOo3KFuax31ohd_iOew/viewform?usp=send_form"
 };
 
+/**
+ * Fires on a real form submission. Processes ONLY the row that just came in
+ * (via e.range.getRow()) - NOT the whole sheet. This matters: if this scanned
+ * every row on every submission, any backlog of unprocessed rows (e.g. from
+ * before this trigger was turned on, or a past run that failed partway) would
+ * all get emailed together the next time anyone submitted the form, instead of
+ * just the new person.
+ */
 function onRegistrationFormSubmit(e) {
+  if (!e || !e.range) {
+    Logger.log("onRegistrationFormSubmit: no trigger event/range - not processing anything. Use processRegistrationBacklog() to catch up manually if needed.");
+    return;
+  }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const regSheet = ss.getSheetByName("Registration Form");
   if (!regSheet) return;
 
-  const regData = regSheet.getDataRange().getValues();
-  const cohortDates = getCalculatedCohortDates();
+  processRegistrationRow(regSheet, e.range.getRow());
+}
 
-  for (let i = 1; i < regData.length; i++) {
-    let row = regData[i];
-    let rowIdx = i + 1;
-    
-    let isProcessedCheckbox = row[0];                   // Col A: Process Checkbox
-    let email = String(row[2] || "").trim();           // Col C: Email Address
-    let name = String(row[3] || "").trim();            // Col D: Full Name
-    let coursesCompleted = String(row[5] || "").trim();// Col F: Courses Completed
+/**
+ * Manual catch-up: scans the WHOLE Registration Form sheet and processes any
+ * row that isn't marked done yet. Run this by hand (from the editor) if you
+ * suspect some rows were missed - do not wire this to the form-submit trigger,
+ * or you're back to the "processes the whole backlog on every submission" bug.
+ */
+function processRegistrationBacklog() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const regSheet = ss.getSheetByName("Registration Form");
+  if (!regSheet || regSheet.getLastRow() <= 1) return;
 
-    // Safety check: Skip if already checked or email is empty
-    if (isProcessedCheckbox === true || isProcessedCheckbox === "TRUE" || !email || !email.includes("@")) {
-      continue;
-    }
-
-    const coursesLower = coursesCompleted.toLowerCase();
-    const hasDesignThinking = coursesLower.includes("design thinking");
-    const hasNetworkingLive = coursesLower.includes("networking live");
-    const cleanCourses = coursesLower.replace("networking live", "");
-    const hasNetworking = cleanCourses.includes("networking");
-
-    if (hasDesignThinking && hasNetworkingLive && hasNetworking) {
-      regSheet.getRange(rowIdx, 10).setValue("QUALIFIED");   // Col J
-      regSheet.getRange(rowIdx, 12).setValue("PENDING");    // Col L (Pre-task status)
-      
-      // Send Pre-Task Email
-      sendPreTaskEmail(name, email, cohortDates.preTaskDeadlineDate);
-
-    } else {
-      regSheet.getRange(rowIdx, 10).setValue("PREREQ_FAILED");
-      sendPrereqFailedEmail(name, email);
-    }
-
-    // Mark row as processed so it never runs twice
-    regSheet.getRange(rowIdx, 1).setValue(true);
+  let processedCount = 0;
+  for (let rowIdx = 2; rowIdx <= regSheet.getLastRow(); rowIdx++) {
+    if (processRegistrationRow(regSheet, rowIdx)) processedCount++;
   }
+  Logger.log(`processRegistrationBacklog: processed ${processedCount} previously-unhandled row(s).`);
+}
+
+/**
+ * Processes a single Registration Form row. Returns true if it actually did
+ * something (i.e. wasn't already checked/empty/invalid), false otherwise.
+ */
+function processRegistrationRow(regSheet, rowIdx) {
+  let row = regSheet.getRange(rowIdx, 1, 1, regSheet.getLastColumn()).getValues()[0];
+
+  let isProcessedCheckbox = row[0];                   // Col A: Process Checkbox
+  let email = String(row[2] || "").trim();           // Col C: Email Address
+  let name = String(row[3] || "").trim();            // Col D: Full Name
+  let coursesCompleted = String(row[5] || "").trim();// Col F: Courses Completed
+
+  // Safety check: Skip if already checked or email is empty
+  if (isProcessedCheckbox === true || isProcessedCheckbox === "TRUE" || !email || !email.includes("@")) {
+    return false;
+  }
+
+  const cohortDates = getCalculatedCohortDates();
+  const coursesLower = coursesCompleted.toLowerCase();
+  const hasDesignThinking = coursesLower.includes("design thinking");
+  const hasNetworkingLive = coursesLower.includes("networking live");
+  const cleanCourses = coursesLower.replace("networking live", "");
+  const hasNetworking = cleanCourses.includes("networking");
+
+  if (hasDesignThinking && hasNetworkingLive && hasNetworking) {
+    regSheet.getRange(rowIdx, 10).setValue("QUALIFIED");   // Col J
+    regSheet.getRange(rowIdx, 12).setValue("PENDING");    // Col L (Pre-task status)
+    
+    // Send Pre-Task Email
+    sendPreTaskEmail(name, email, cohortDates.preTaskDeadlineDate);
+
+  } else {
+    regSheet.getRange(rowIdx, 10).setValue("PREREQ_FAILED");
+    sendPrereqFailedEmail(name, email);
+  }
+
+  // Mark row as processed so it never runs twice
+  regSheet.getRange(rowIdx, 1).setValue(true);
+  return true;
 }
 
 function sendPreTaskEmail(name, email, preTaskDeadline) {

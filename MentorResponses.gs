@@ -3,8 +3,35 @@
  * Column I: Mentor invite attempts (number, max 3)
  * Column J: Course reinvite attempts (number, max 3) - used by handleCohortNoShow in AttandanceTracker.gs
  * Column K: Course reinvite status (e.g. "Reinvited - attempt 2", "Stopped - No response after 3 invites")
+ * Column L: Manual "Add as Mentor" checkbox - check it to immediately send that
+ *   row an invite, going through the exact same logic/attempt-tracking as the
+ *   automated path (see onEditInternDetails below).
  */
 const MAX_MENTOR_INVITE_ATTEMPTS = 3;
+const MANUAL_MENTOR_CHECKBOX_COL = 12; // Column L
+
+/**
+ * Sends the mentor invite email to one row and updates its tracking columns.
+ * Shared by both sendMentorInvitationEmails() (automated) and
+ * onEditInternDetails() (manual checkbox), so both paths behave identically.
+ */
+function sendMentorInvitationToRow(detailsSheet, rowIndex, attemptsSoFar) {
+  let rowValues = detailsSheet.getRange(rowIndex, 1, 1, 9).getValues()[0];
+  let email = String(rowValues[2]).toLowerCase().trim(); // Column C
+  let name = rowValues[1]; // Column B
+
+  let subject = "Invitation to become a Mentor";
+  let message = `Hi ${name},\n\n` +
+                `Congratulations on reaching your milestones! We would love to invite you to become a mentor for our upcoming sessions.\n\n` +
+                `Please reply to this email with "Yes" if you would like to mentor, or "No" if you cannot make it.\n` +
+                `If you say Yes, you can also choose your track preference by including "Weekday" (WD) or "Weekend" (WE) in your reply.\n\n` +
+                `Best regards,\nThe Partnership Team`;
+
+  MailApp.sendEmail(email, subject, message);
+
+  detailsSheet.getRange(rowIndex, 7).setValue("Invite Sent"); // Column G
+  detailsSheet.getRange(rowIndex, 9).setValue(attemptsSoFar + 1); // Column I
+}
 
 function sendMentorInvitationEmails() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -15,8 +42,6 @@ function sendMentorInvitationEmails() {
   let detailsData = detailsRange.getValues();
 
   detailsData.forEach((row, index) => {
-    let email = String(row[2]).toLowerCase().trim(); // Column C: Email
-    let name = row[1];                               // Column B: Name
     let rowIndex = index + 2;
     let currentStatus = String(row[6]);              // Column G: Mentor status
     let attempts = Number(row[8]) || 0;               // Column I: Mentor invite attempts
@@ -32,22 +57,59 @@ function sendMentorInvitationEmails() {
         detailsSheet.getRange(rowIndex, 7).setValue(`Declined - stopped after ${attempts} invites`);
         return;
       }
-
-      let subject = "Invitation to become a Mentor";
-      let message = `Hi ${name},\n\n` +
-                    `Congratulations on reaching your milestones! We would love to invite you to become a mentor for our upcoming sessions.\n\n` +
-                    `Please reply to this email with "Yes" if you would like to mentor, or "No" if you cannot make it.\n` +
-                    `If you say Yes, you can also choose your track preference by including "Weekday" (WD) or "Weekend" (WE) in your reply.\n\n` +
-                    `Best regards,\nThe Partnership Team`;
-
-      // Send the email
-      MailApp.sendEmail(email, subject, message);
-
-      // Update status to prevent spamming, and record this attempt
-      detailsSheet.getRange(rowIndex, 7).setValue("Invite Sent");
-      detailsSheet.getRange(rowIndex, 9).setValue(attempts + 1); // Column I
+      sendMentorInvitationToRow(detailsSheet, rowIndex, attempts);
     }
   });
+}
+
+/**
+ * Installable onEdit trigger (needs to be installable, not the simple onEdit(e)
+ * function, since simple triggers can't send email). Watches Column L on Intern
+ * Details: when someone manually checks the box for a row, it immediately sends
+ * that person a mentor invite - going through sendMentorInvitationToRow so it's
+ * tracked with the exact same attempt-count/status columns as an automated
+ * invite, and therefore follows the same 3-attempt decline/reinvite rules.
+ */
+function onEditInternDetails(e) {
+  try {
+    let sheet = e.range.getSheet();
+    if (sheet.getName() !== "Intern Details") return;
+    if (e.range.getRow() === 1 || e.range.getColumn() !== MANUAL_MENTOR_CHECKBOX_COL) return;
+    if (e.range.getValue() !== true) return; // only fire when checked, not unchecked
+
+    let rowIndex = e.range.getRow();
+    let currentStatus = String(sheet.getRange(rowIndex, 7).getValue() || "").trim(); // Column G
+
+    if (currentStatus === "Mentor" || currentStatus === "Mentor Done") {
+      // Already a mentor - nothing to do, reset the checkbox to avoid confusion
+      sheet.getRange(rowIndex, MANUAL_MENTOR_CHECKBOX_COL).setValue(false);
+      Logger.log(`Row ${rowIndex} is already a mentor (status: ${currentStatus}) - manual checkbox ignored.`);
+      return;
+    }
+
+    let attempts = Number(sheet.getRange(rowIndex, 9).getValue()) || 0; // Column I
+
+    if (attempts >= MAX_MENTOR_INVITE_ATTEMPTS) {
+      sheet.getRange(rowIndex, 7).setValue(`Declined - stopped after ${attempts} invites`);
+      sheet.getRange(rowIndex, MANUAL_MENTOR_CHECKBOX_COL).setValue(false);
+      return;
+    }
+
+    sendMentorInvitationToRow(sheet, rowIndex, attempts);
+
+    // Reset the checkbox after sending, so it's ready to use again next time.
+    sheet.getRange(rowIndex, MANUAL_MENTOR_CHECKBOX_COL).setValue(false);
+  } catch (err) {
+    Logger.log("onEditInternDetails error: " + err);
+  }
+}
+
+/** Run this once from the editor to install the manual-checkbox trigger. */
+function createInternDetailsEditTrigger() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(tr => { if (tr.getHandlerFunction() === "onEditInternDetails") ScriptApp.deleteTrigger(tr); });
+  ScriptApp.newTrigger("onEditInternDetails").forSpreadsheet(ss).onEdit().create();
 }
 
 /**
@@ -82,6 +144,17 @@ function createMonthlyMentorReinviteTrigger() {
   let triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(tr => { if (tr.getHandlerFunction() === "refreshDeclinedMentorInvites") ScriptApp.deleteTrigger(tr); });
   ScriptApp.newTrigger("refreshDeclinedMentorInvites").timeBased().onMonthDay(1).atHour(6).create();
+}
+
+/**
+ * Run this once to install the monthly invite-sending trigger, 1 hour after
+ * refreshDeclinedMentorInvites (above) - so anyone bumped back to "Eligible"
+ * that same run gets swept into the same batch as newly-mastered interns.
+ */
+function createMonthlySendMentorInvitesTrigger() {
+  let triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(tr => { if (tr.getHandlerFunction() === "sendMentorInvitationEmails") ScriptApp.deleteTrigger(tr); });
+  ScriptApp.newTrigger("sendMentorInvitationEmails").timeBased().onMonthDay(1).atHour(7).create();
 }
 
 function processMentorEmailReplies() {
@@ -165,34 +238,11 @@ function extractEmailAddress(fromField) {
 }
 
 function sendSharedMentorCalendarInvite(email, preference) {
-  const calendar = CalendarApp.getDefaultCalendar();
-  const now = new Date();
-  const futureTime = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000)); // 30 days ahead
-  
-  // Searches for your shared master session event
-  const events = calendar.getEvents(now, futureTime, { search: "Partnership Course" });
-
-  let found = false;
-  for (let i = 0; i < events.length; i++) {
-    let event = events[i];
-    let eventDateObj = event.getStartTime();
-    let dayOfWeek = eventDateObj.getDay(); 
-    // Automatically determines if the scheduled event is Weekend (Sat/Sun) or Weekday (Mon-Fri)
-    let sessionType = (dayOfWeek === 0 || dayOfWeek === 6) ? "WE" : "WD";
-
-    if (sessionType === preference) {
-      // Adds them as a guest to the shared event, granting them the exact same Google Meet link
-      event.addGuest(email);
-      found = true;
-      break; 
-    }
-  }
-
-  if (!found) {
-    // No sessions exist for this track yet - create them with a guaranteed Meet link
-    // instead of silently failing to invite the mentor. (Lives in PreTaskTracker.gs)
-    addStudentToAllFourCourseSessions(email, preference === "WE");
-  }
+  // Finds the existing 4-week recurring series for this track (or creates it if
+  // none exists yet) and adds the mentor as a guest to the whole series, so they
+  // get the exact same shared Meet link everyone else has.
+  // (addStudentToAllFourCourseSessions lives in PreTaskTracker.gs)
+  addStudentToAllFourCourseSessions(email, preference === "WE");
 }
 
 function createMentorEmailTrigger() {

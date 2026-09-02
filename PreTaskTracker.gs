@@ -1,69 +1,91 @@
 /**
- * Triggered when a new response is submitted to the Pre-task Form.
- * Matches the email against the Registration Form, marks status as COMPLETED,
- * auto-assigns calendar invites, and sends the confirmation email.
+ * Fires on a real Pre-task Form submission. Processes ONLY the row that just
+ * came in (via e.range.getRow()) - NOT the whole sheet. Same reasoning as
+ * onRegistrationFormSubmit in RegistrationAutomation.gs: scanning every row on
+ * every submission means any backlog of unprocessed rows gets emailed together
+ * the next time anyone submits, not just the new person.
  */
 function onPreTaskFormSubmit(e) {
+  if (!e || !e.range) {
+    Logger.log("onPreTaskFormSubmit: no trigger event/range - not processing anything. Use processPreTaskBacklog() to catch up manually if needed.");
+    return;
+  }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const preTaskSheet = ss.getSheetByName("Pre-task Form"); 
+  const preTaskSheet = ss.getSheetByName("Pre-task Form");
   const regSheet = ss.getSheetByName("Registration Form");
-  
   if (!preTaskSheet || !regSheet) return;
 
-  const preTaskData = preTaskSheet.getDataRange().getValues();
+  let didProcess = processPreTaskRow(preTaskSheet, regSheet, e.range.getRow());
+  Logger.log(didProcess ? "Processed 1 new pre-task submission." : "Row was already processed, empty, or had no matching registration.");
+}
+
+/**
+ * Manual catch-up: scans the WHOLE Pre-task Form sheet and processes any row
+ * that isn't marked done yet. Run this by hand if you suspect some rows were
+ * missed - do not wire this to the form-submit trigger.
+ */
+function processPreTaskBacklog() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const preTaskSheet = ss.getSheetByName("Pre-task Form");
+  const regSheet = ss.getSheetByName("Registration Form");
+  if (!preTaskSheet || !regSheet || preTaskSheet.getLastRow() <= 1) return;
+
+  let processedCount = 0;
+  for (let rowIdx = 2; rowIdx <= preTaskSheet.getLastRow(); rowIdx++) {
+    if (processPreTaskRow(preTaskSheet, regSheet, rowIdx)) processedCount++;
+  }
+  Logger.log(`processPreTaskBacklog: processed ${processedCount} previously-unhandled row(s).`);
+}
+
+/**
+ * Processes a single Pre-task Form row: matches it against Registration Form,
+ * marks COMPLETED, adds calendar invites, and sends the confirmation email.
+ * Returns true if it actually did something, false if skipped (already
+ * processed, empty, invalid, or no matching registration found).
+ */
+function processPreTaskRow(preTaskSheet, regSheet, rowIdx) {
+  let row = preTaskSheet.getRange(rowIdx, 1, 1, preTaskSheet.getLastColumn()).getValues()[0];
+
+  let isProcessedCheckbox = row[0];             // Col A: Checkbox
+  let studentEmail = String(row[2] || "").trim();    // Col C: Email Address
+
+  // Skip if already processed, empty, or not an email
+  if (isProcessedCheckbox === true || isProcessedCheckbox === "TRUE" || !studentEmail || !studentEmail.includes("@")) {
+    return false;
+  }
+
   const regData = regSheet.getDataRange().getValues();
   const cohortDates = getCalculatedCohortDates();
 
-  let processedCount = 0;
+  for (let j = 1; j < regData.length; j++) {
+    let regRow = regData[j];
+    let regEmail = String(regRow[2] || "").trim();    // Col C in Reg sheet
+    let regName = String(regRow[3] || "").trim();      // Col D
+    let chosenTiming = String(regRow[6] || "").toLowerCase(); // Col G (Index 6) - Weekday vs Weekend choice
 
-  for (let i = 1; i < preTaskData.length; i++) {
-    let row = preTaskData[i];
-    let rowIdx = i + 1;
-    
-    let isProcessedCheckbox = row[0];             // Col A: Checkbox
-    let studentEmail = String(row[2] || "").trim();    // Col C: Email Address
+    if (regEmail.toLowerCase() === studentEmail.toLowerCase()) {
+      // Update Registration sheet Column L to COMPLETED
+      regSheet.getRange(j + 1, 12).setValue("COMPLETED");
 
-    // Skip if already processed, empty, or not an email
-    if (isProcessedCheckbox === true || isProcessedCheckbox === "TRUE" || !studentEmail || !studentEmail.includes("@")) {
-      continue;
-    }
+      // Determine track based on Registration Form Column G
+      let isWeekend = chosenTiming.includes("weekend") || chosenTiming.includes("sunday");
 
-    let foundMatch = false;
-    for (let j = 1; j < regData.length; j++) {
-      let regRow = regData[j];
-      let regEmail = String(regRow[2] || "").trim();    // Col C in Reg sheet
-      let regName = String(regRow[3] || "").trim();      // Col D
-      let chosenTiming = String(regRow[6] || "").toLowerCase(); // Col G (Index 6) - Weekday vs Weekend choice
-      
-      if (regEmail.toLowerCase() === studentEmail.toLowerCase()) {
-        foundMatch = true;
-        
-        // Update Registration sheet Column L to COMPLETED
-        regSheet.getRange(j + 1, 12).setValue("COMPLETED"); 
+      // 1. Add student to the correct (Weekday or Weekend) 4 weekly Course events
+      addStudentToAllFourCourseSessions(regEmail, isWeekend);
 
-        // Determine track based on Registration Form Column G
-        let isWeekend = chosenTiming.includes("weekend") || chosenTiming.includes("sunday");
+      // 2. Add student to the correct Tech Check event
+      addStudentToGroupTechCheck(regEmail, isWeekend);
 
-        // 1. Add student to the correct (Weekday or Weekend) 4 weekly Course events
-        addStudentToAllFourCourseSessions(regEmail, isWeekend);
-        
-        // 2. Add student to the correct Tech Check event
-        addStudentToGroupTechCheck(regEmail, isWeekend);
+      // 3. Send confirmation email with the correct dates (Sunday list if weekend, Thursday list if weekday)
+      sendPreTaskCompletedEmail(regName, regEmail, isWeekend ? cohortDates.sundayList : cohortDates.thursdayList);
 
-        // 3. Send confirmation email with the correct dates (Sunday list if weekend, Thursday list if weekday)
-        sendPreTaskCompletedEmail(regName, regEmail, isWeekend ? cohortDates.sundayList : cohortDates.thursdayList);
-        break; 
-      }
-    }
-
-    if (foundMatch) {
       preTaskSheet.getRange(rowIdx, 1).setValue(true);
-      SpreadsheetApp.flush(); 
-      processedCount++;
+      SpreadsheetApp.flush();
+      return true;
     }
   }
-  
-  Logger.log("Successfully processed " + processedCount + " new submission(s).");
+
+  return false; // no matching registration found - leave unchecked so it can be caught later
 }
 
 /**
@@ -166,6 +188,64 @@ function createEventWithMeetLink(calendarId, title, description, startDate, endD
   return createdEvent.id;
 }
 
+/**
+ * Creates a WEEKLY RECURRING event (occurrenceCount occurrences) with ONE Meet
+ * link shared across every occurrence - unlike createEventWithMeetLink, which
+ * makes a standalone event with its own separate link each time it's called.
+ * Returns the recurring series' master event ID.
+ */
+function createRecurringEventWithMeetLink(calendarId, title, description, startDate, endDate, occurrenceCount) {
+  let event = {
+    summary: title,
+    description: description,
+    start: { dateTime: startDate.toISOString(), timeZone: 'Etc/GMT' },
+    end: { dateTime: endDate.toISOString(), timeZone: 'Etc/GMT' },
+    recurrence: [`RRULE:FREQ=WEEKLY;COUNT=${occurrenceCount}`],
+    conferenceData: {
+      createRequest: {
+        requestId: Utilities.getUuid(),
+        conferenceSolutionKey: { type: 'hangoutsMeet' }
+      }
+    }
+  };
+
+  let createdEvent = Calendar.Events.insert(event, calendarId, { conferenceDataVersion: 1 });
+  return createdEvent.id;
+}
+
+/**
+ * Finds an existing recurring series (or standalone event) matching this exact
+ * title within the given window, WITHOUT expanding it into individual occurrence
+ * instances (singleEvents: false) - so we get the series' own master ID back,
+ * suitable for adding a guest to the whole series at once.
+ */
+function findExistingSeriesId(calendarId, title, searchStart, searchEnd) {
+  let response = Calendar.Events.list(calendarId, {
+    timeMin: searchStart.toISOString(),
+    timeMax: searchEnd.toISOString(),
+    q: title,
+    singleEvents: false
+  });
+  let items = response.items || [];
+  let match = items.find(e => e.summary && e.summary.trim() === title);
+  return match ? match.id : null;
+}
+
+/**
+ * Adds a guest to an entire recurring series (or a standalone event) at once,
+ * so they get the same shared Meet link across every occurrence. Safe to call
+ * repeatedly - won't duplicate the guest if they're already on it.
+ */
+function addGuestToSeries(calendarId, seriesEventId, email) {
+  let event = Calendar.Events.get(calendarId, seriesEventId);
+  let attendees = event.attendees || [];
+  let alreadyGuest = attendees.some(a => a.email && a.email.toLowerCase() === email.toLowerCase());
+  if (!alreadyGuest) {
+    attendees.push({ email: email });
+    Calendar.Events.patch({ attendees: attendees }, calendarId, seriesEventId);
+  }
+}
+
 function getNextCohortFirstDay(isWeekend) {
   const now = new Date();
   let nextYear = now.getFullYear();
@@ -190,45 +270,36 @@ function addStudentToAllFourCourseSessions(email, isWeekend) {
   let calendarId = calendar.getId();
   let firstSessionDate = getNextCohortFirstDay(isWeekend);
   let cohortType = isWeekend ? "Weekend" : "Weekday";
+  let eventTitle = `Partnership Course ${cohortType}`;
 
-  for (let week = 0; week < 4; week++) {
-    let eventDate = new Date(firstSessionDate);
-    eventDate.setUTCDate(eventDate.getUTCDate() + (week * 7)); 
-    
-    let endDate = new Date(eventDate);
-    
-    if (isWeekend) {
-      eventDate.setUTCHours(14, 0, 0, 0); 
-      endDate.setUTCHours(16, 0, 0, 0);   
-    } else {
-      eventDate.setUTCHours(11, 0, 0, 0); 
-      endDate.setUTCHours(13, 0, 0, 0);   
-    }
+  let startDate = new Date(firstSessionDate);
+  let endDate = new Date(firstSessionDate);
 
-    let eventTitle = `Partnership Course ${cohortType}`;
-    
-    let events = calendar.getEvents(
-      new Date(eventDate.getTime() - 24 * 60 * 60 * 1000), 
-      new Date(eventDate.getTime() + 24 * 60 * 60 * 1000), 
-      { search: eventTitle }
-    );
-
-    let groupEvent;
-    if (events.length > 0) {
-      groupEvent = events[0];
-    } else {
-      // Create via the Advanced Calendar Service so a Meet link is guaranteed,
-      // regardless of the account's own conferencing default.
-      let createdEventId = createEventWithMeetLink(
-        calendarId, eventTitle,
-        `Shared group course meeting link for Week ${week + 1}.`,
-        eventDate, endDate
-      );
-      groupEvent = calendar.getEventById(createdEventId);
-    }
-
-    groupEvent.addGuest(email);
+  if (isWeekend) {
+    startDate.setUTCHours(14, 0, 0, 0);
+    endDate.setUTCHours(16, 0, 0, 0);
+  } else {
+    startDate.setUTCHours(11, 0, 0, 0);
+    endDate.setUTCHours(13, 0, 0, 0);
   }
+
+  // Search a window covering the whole 4-week cohort for an already-existing series
+  let searchStart = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+  let searchEnd = new Date(startDate.getTime() + 35 * 24 * 60 * 60 * 1000);
+
+  let seriesId = findExistingSeriesId(calendarId, eventTitle, searchStart, searchEnd);
+
+  if (!seriesId) {
+    // Not found - create the whole 4-week series at once, one shared Meet link
+    // for all 4 sessions instead of 4 separate links.
+    seriesId = createRecurringEventWithMeetLink(
+      calendarId, eventTitle,
+      'Shared group course meeting link for all 4 weekly sessions.',
+      startDate, endDate, 4
+    );
+  }
+
+  addGuestToSeries(calendarId, seriesId, email);
 }
 
 function addStudentToGroupTechCheck(email, isWeekend) {

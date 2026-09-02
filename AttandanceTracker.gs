@@ -218,14 +218,32 @@ function processMonthlyAttendance(trackType, currentMeetingNum) {
  */
 function removeFromRemainingSessionsThisMonth(email, trackType) {
   const calendar = CalendarApp.getDefaultCalendar();
+  const calendarId = calendar.getId();
   const now = new Date();
   const windowEnd = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000); // covers the rest of this cohort
   const eventTitle = `Partnership Course ${trackType}`;
 
-  const events = calendar.getEvents(now, windowEnd, { search: eventTitle });
-  events.forEach(event => {
-    if (event.getTitle().trim() === eventTitle && event.getStartTime() >= now) {
-      event.removeGuest(email);
+  // Sessions are now one recurring series sharing a single Meet link (see
+  // PreTaskTracker.gs). To remove someone from only the REMAINING occurrences -
+  // without touching past ones or the series' shared link - we expand the series
+  // into individual instances (singleEvents: true) and patch each future one's
+  // attendee list separately. This creates a per-occurrence override rather than
+  // editing the series itself.
+  let response = Calendar.Events.list(calendarId, {
+    timeMin: now.toISOString(),
+    timeMax: windowEnd.toISOString(),
+    q: eventTitle,
+    singleEvents: true,
+    orderBy: 'startTime'
+  });
+
+  let items = response.items || [];
+  items.forEach(item => {
+    if (!item.summary || item.summary.trim() !== eventTitle) return;
+    let attendees = item.attendees || [];
+    let filtered = attendees.filter(a => a.email && a.email.toLowerCase() !== email.toLowerCase());
+    if (filtered.length !== attendees.length) {
+      Calendar.Events.patch({ attendees: filtered }, calendarId, item.id);
     }
   });
 }
