@@ -73,12 +73,67 @@ function buildOrdinalDateList(monthName, days) {
   return `${monthName} ${allButLast} & ${last}`;
 }
 
+/** Builds "September 3, September 10, September 17, September 24" style text
+ * (month name repeated per day, no ordinal suffix) - the format used in the
+ * form's intro DESCRIPTION text, which is different from the ordinal style
+ * used in the actual question choices (buildOrdinalDateList above). */
+function buildRepeatedMonthDateList(monthName, days) {
+  return days.map(d => `${monthName} ${d}`).join(', ');
+}
+
+/**
+ * Updates the date text inside the form's intro DESCRIPTION (the "Schedule
+ * Options" paragraph at the top) - separate from the actual answer choices,
+ * which updateRegistrationFormTimingChoices() already handles.
+ *
+ * IMPORTANT LIMITATION: Apps Script's Forms service only reads/writes
+ * descriptions as plain text - there is no way to preserve rich formatting
+ * (bold, colors) through a script edit. Calling this WILL strip all
+ * formatting from the entire description, every time it runs, permanently.
+ * This was a deliberate, explicitly-confirmed tradeoff - see conversation.
+ *
+ * Safety net: uses exact-text regex matching against the current wording.
+ * If either expected line isn't found (e.g. someone reworded the intro),
+ * it aborts and touches NOTHING rather than guessing - so a future wording
+ * change doesn't silently wipe formatting for no benefit.
+ */
+function updateRegistrationFormDescriptionDates() {
+  const form = FormApp.openById(REGISTRATION_FORM_ID);
+  const description = form.getDescription();
+
+  let thursdayInfo = getNextCohortDayNumbers(4); // Thursday
+  let sundayInfo = getNextCohortDayNumbers(0);   // Sunday
+
+  let weekdayDateList = buildRepeatedMonthDateList(thursdayInfo.monthName, thursdayInfo.days);
+  let weekendDateList = buildRepeatedMonthDateList(sundayInfo.monthName, sundayInfo.days);
+
+  let weekdayPattern = /Weekday Cohort:\s*Thursdays\s*\([^)]*\)\s*\|\s*[^\n]*GMT\s*\+0/;
+  let weekendPattern = /Weekend Cohort:\s*Sundays\s*\([^)]*\)\s*\|\s*[^\n]*GMT\s*\+0/;
+
+  let newWeekdayLine = `Weekday Cohort: Thursdays (${weekdayDateList}) | 11:00 AM \u2013 1:00 PM GMT +0`;
+  let newWeekendLine = `Weekend Cohort: Sundays (${weekendDateList}) | 2:00 PM \u2013 4:00 PM GMT +0`;
+
+  if (!weekdayPattern.test(description) || !weekendPattern.test(description)) {
+    Logger.log("updateRegistrationFormDescriptionDates: could not find the expected 'Weekday Cohort:'/'Weekend Cohort:' lines in the form description. Nothing was changed - description formatting was NOT touched.");
+    return;
+  }
+
+  let newDescription = description
+    .replace(weekdayPattern, newWeekdayLine)
+    .replace(weekendPattern, newWeekendLine);
+
+  form.setDescription(newDescription);
+  Logger.log(`Updated form description dates (formatting is now plain text - see function comment):\n${newWeekdayLine}\n${newWeekendLine}`);
+}
+
 /**
  * Run this once from the editor to test, or leave it on the monthly trigger
  * (see createFormDateUpdateTrigger below). Finds the Weekday/Weekend timing
  * question by looking for choices starting with "Weekday-" and "Weekend-"
  * (rather than matching on question title, which is more fragile), and
- * replaces just those two choice strings with the updated dates.
+ * replaces just those two choice strings with the updated dates. Also
+ * updates the intro description's date text (see
+ * updateRegistrationFormDescriptionDates above for the formatting caveat).
  */
 function updateRegistrationFormTimingChoices() {
   const form = FormApp.openById(REGISTRATION_FORM_ID);
@@ -104,6 +159,8 @@ function updateRegistrationFormTimingChoices() {
       choices = item.asMultipleChoiceItem().getChoices();
     } else if (type === FormApp.ItemType.CHECKBOX) {
       choices = item.asCheckboxItem().getChoices();
+    } else if (type === FormApp.ItemType.LIST) {
+      choices = item.asListItem().getChoices();
     } else {
       return;
     }
@@ -123,9 +180,14 @@ function updateRegistrationFormTimingChoices() {
 
   // Safety check: only overwrite if there are exactly 2 choices, so we never
   // silently wipe out extra options someone may have added to this question.
-  let currentChoiceCount = (targetType === FormApp.ItemType.MULTIPLE_CHOICE)
-    ? targetItem.asMultipleChoiceItem().getChoices().length
-    : targetItem.asCheckboxItem().getChoices().length;
+  let currentChoiceCount;
+  if (targetType === FormApp.ItemType.MULTIPLE_CHOICE) {
+    currentChoiceCount = targetItem.asMultipleChoiceItem().getChoices().length;
+  } else if (targetType === FormApp.ItemType.CHECKBOX) {
+    currentChoiceCount = targetItem.asCheckboxItem().getChoices().length;
+  } else {
+    currentChoiceCount = targetItem.asListItem().getChoices().length;
+  }
 
   if (currentChoiceCount !== 2) {
     Logger.log(`updateRegistrationFormTimingChoices: expected exactly 2 choices on the timing question but found ${currentChoiceCount}. Nothing was changed - update manually or adjust this function.`);
@@ -134,11 +196,18 @@ function updateRegistrationFormTimingChoices() {
 
   if (targetType === FormApp.ItemType.MULTIPLE_CHOICE) {
     targetItem.asMultipleChoiceItem().setChoiceValues([weekdayChoiceText, weekendChoiceText]);
-  } else {
+  } else if (targetType === FormApp.ItemType.CHECKBOX) {
     targetItem.asCheckboxItem().setChoiceValues([weekdayChoiceText, weekendChoiceText]);
+  } else {
+    targetItem.asListItem().setChoiceValues([weekdayChoiceText, weekendChoiceText]);
   }
 
   Logger.log(`Updated form timing choices:\n${weekdayChoiceText}\n${weekendChoiceText}`);
+
+  // Also update the intro description's date text (separate from the answer
+  // choices above) - see updateRegistrationFormDescriptionDates for the
+  // plain-text formatting caveat.
+  updateRegistrationFormDescriptionDates();
 }
 
 /**
