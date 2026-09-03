@@ -12,22 +12,73 @@ function getCurrentMonthSheetName(trackType) {
   // Column J: Course reinvite attempts (missed-meeting rollovers, see rollInternToNextCohort below)
   // Column K: Course reinvite status ("Reinvited - attempt N" or "Stopped - no response after N invites")
   //
-  // Monthly attendance sheet extra column:
-  // Column P (16): Eligibility status - set the moment someone misses a meeting this
-  // cohort ("Not eligible - missed Meeting N"). Missing ANY meeting disqualifies
-  // mastery, so this is set on the first miss, whichever meeting that is.
+  // Monthly attendance sheet layout (columns): A unused/decorative, B Name,
+  // C Email, D Discord ID, then 4 meeting blocks of 5 columns each (Attendance,
+  // Tech, Participation, Comment, spacer) starting at column E:
+  //   Meeting 1: E-H   Meeting 2: J-M   Meeting 3: O-R   Meeting 4: T-W
+  // New tracking columns added right after Meeting 4's Comment column (W):
+  //   Column X (24): Eligibility status ("Not eligible - missed Meeting N")
+  //   Column Y (25): Course Result ("MASTERED" / "NOT MET")
+  // See getMeetingColumns() below for the exact per-meeting column math.
+  //
+  // Rows: section header rows ("Weekday Mentors" / "Weekday Interns" etc, Name
+  // column filled but no email) mark which section the rows below belong to.
+  // Mentor-section rows are informational only - no automated consequences.
   const date = new Date();
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   let currentMonthName = monthNames[date.getMonth()];
-  let currentYear = date.getFullYear();
-  
-  return `Attendance - ${currentMonthName} ${currentYear} - ${trackType}`;
+  let currentYearShort = String(date.getFullYear()).slice(-2);
+  let trackAbbrev = (trackType === "Weekend") ? "WE" : "WD";
+
+  return `${currentMonthName} ${trackAbbrev} ${currentYearShort}`;
+}
+
+/**
+ * Returns the 1-indexed column numbers for one meeting's 4 data columns.
+ * Each meeting block is 5 columns wide (4 data + 1 spacer), starting at
+ * column E (5) for Meeting 1: E-H, J-M, O-R, T-W for meetings 1-4.
+ */
+function getMeetingColumns(meetingNum) {
+  let blockStart = 5 + (meetingNum - 1) * 5;
+  return {
+    attendance: blockStart,
+    tech: blockStart + 1,
+    participation: blockStart + 2,
+    comment: blockStart + 3
+  };
+}
+
+const ELIGIBILITY_COL = 24; // Column X - right after Meeting 4's Comment column (W/23)
+const COURSE_RESULT_COL = 25; // Column Y
+
+/**
+ * Given a row's values array (0-indexed) from the attendance sheet, returns
+ * "Mentor", "Intern", or null for a section-header/blank row that isn't
+ * itself a person. Section headers are detected by having text in the Name
+ * column (B) but no valid email in Email (C) - e.g. "Weekday Mentors".
+ */
+function getRowSectionType(row) {
+  let nameCell = String(row[1] || "").trim(); // Column B
+  let email = row[2]; // Column C
+  let hasValidEmail = email && String(email).includes("@");
+
+  if (hasValidEmail) return "DATA"; // an actual person row - caller checks section separately
+  if (!nameCell) return null; // blank spacer row
+
+  let lower = nameCell.toLowerCase();
+  if (lower.includes("mentor")) return "Mentor";
+  if (lower.includes("intern")) return "Intern";
+  return null; // some other non-data row, e.g. a stray label
 }
 
 /**
  * -------------------------------------------------------------------
- * 1. AUTO-SYNC PARTICIPANTS (RUN THIS AT THE START OF EACH MONTH)
- * Creates the current month's tab dynamically and pulls data from "Intern Details"
+ * 1. SYNC INTERNS INTO AN ALREADY-CREATED MONTHLY TAB
+ * This does NOT build the tab, the meeting grid, section headers, or
+ * formatting - your monthly tabs are hand-built/duplicated from a template
+ * (see the Mentor/Intern section structure). This just syncs names, emails,
+ * and Discord IDs from "Intern Details" into the existing "... Interns"
+ * section of an already-created tab, filtered to the correct track.
  * -------------------------------------------------------------------
  */
 function setupCurrentMonthAttendance(trackType) {
@@ -45,27 +96,49 @@ function setupCurrentMonthAttendance(trackType) {
   
   let attSheet = attSS.getSheetByName(sheetName);
   if (!attSheet) {
-    attSheet = attSS.insertSheet(sheetName);
-    // Set up a simple header
-    attSheet.getRange("A1:B4").merge().setValue(sheetName).setFontSize(14).setFontWeight("bold");
+    SpreadsheetApp.getUi().alert(
+      `Tab "${sheetName}" doesn't exist yet in the attendance spreadsheet. This function only syncs ` +
+      `names/emails into an already-created tab (e.g. duplicated from your template) - it doesn't build ` +
+      `the meeting grid, section headers, or formatting. Create the tab first, then re-run.`
+    );
+    return;
   }
 
-  let rowToWrite = 5; // Start writing participant data from row 5 downward
-  
-  // Loop through details and copy rows over
+  // Find the "... Interns" section header row, so we know where to start writing
+  // and never accidentally write into the Mentors section above it.
+  let lastRow = attSheet.getLastRow();
+  let existingValues = lastRow > 0 ? attSheet.getRange(1, 1, lastRow, 2).getValues() : [];
+  let internSectionRow = -1;
+  for (let r = 0; r < existingValues.length; r++) {
+    let cellText = String(existingValues[r][1] || "").toLowerCase(); // Column B
+    if (cellText.includes("intern")) { internSectionRow = r + 1; break; }
+  }
+
+  if (internSectionRow === -1) {
+    SpreadsheetApp.getUi().alert(`Could not find a "... Interns" section header row in "${sheetName}" - add one first, then re-run.`);
+    return;
+  }
+
+  let rowToWrite = internSectionRow + 1; // first row right after the "Interns" header
+  let expectedTrack = (trackType === "Weekend") ? "WE" : "WD";
+
+  // Loop through details and copy rows over - only the matching track
   for (let i = 1; i < detailsData.length; i++) {
     let row = detailsData[i];
-    let name = row[1];       // Assuming Name is in Column B (Index 1)
-    let email = row[2];      // Assuming Email is in Column C (Index 2)
+    let name = row[1];       // Column B: Name
+    let email = row[2];      // Column C: Email
+    let discord = row[3];    // Column D: Discord
+    let track = String(row[4] || "").toUpperCase(); // Column E: Intern WE/WD
 
-    if (email) {
-      attSheet.getRange(rowToWrite, 1).setValue(name);  // Column A: Name
-      attSheet.getRange(rowToWrite, 2).setValue(email); // Column B: Email/ID
+    if (email && track === expectedTrack) {
+      attSheet.getRange(rowToWrite, 2).setValue(name);    // Column B: Name
+      attSheet.getRange(rowToWrite, 3).setValue(email);   // Column C: Email
+      attSheet.getRange(rowToWrite, 4).setValue(discord); // Column D: Discord ID
       rowToWrite++;
     }
   }
   
-  SpreadsheetApp.getUi().alert("Successfully created and synced: " + sheetName);
+  SpreadsheetApp.getUi().alert("Successfully synced interns into: " + sheetName);
 }
 
 /**
@@ -123,11 +196,22 @@ function processMonthlyAttendance(trackType, currentMeetingNum) {
   const dataRange = sheet.getDataRange();
   const values = dataRange.getValues();
 
+  let currentSection = null; // "Mentor" or "Intern" - set by section header rows as we scan down
+
   // Loop through participants (starting at row 5, after headers)
   for (let i = 4; i < values.length; i++) {
     let row = values[i];
-    let email = row[1]; // Column B: Email reference identifier
-    if (!email || !email.includes("@")) continue;
+
+    let rowType = getRowSectionType(row);
+    if (rowType === "Mentor" || rowType === "Intern") {
+      currentSection = rowType; // hit a section header row - update and move on
+      continue;
+    }
+    if (rowType === null) continue; // blank spacer row, not a person
+
+    // rowType === "DATA" - an actual person row
+    let email = String(row[2]).toLowerCase().trim(); // Column C: Email
+    let name = row[1]; // Column B: Name
 
     let meetingsAttendedCount = 0;
     let techGoodCount = 0;
@@ -138,14 +222,11 @@ function processMonthlyAttendance(trackType, currentMeetingNum) {
     let isPresentForTargetMeeting = false;
 
     // Loop through the 4 meetings in the grid
-    for (let m = 0; m < 4; m++) {
-      let attColIndex = 2 + (m * 3);   
-      let techColIndex = 3 + (m * 3);  
-      let partColIndex = 4 + (m * 3);  
-
-      let isPresent = row[attColIndex] === true;
-      let techStatus = row[techColIndex];
-      let participationStatus = row[partColIndex];
+    for (let m = 1; m <= 4; m++) {
+      let cols = getMeetingColumns(m);
+      let isPresent = row[cols.attendance - 1] === true;
+      let techStatus = row[cols.tech - 1];
+      let participationStatus = row[cols.participation - 1];
 
       if (isPresent) {
         meetingsAttendedCount++;
@@ -154,19 +235,19 @@ function processMonthlyAttendance(trackType, currentMeetingNum) {
       }
 
       // Capture data specifically for the meeting that just wrapped up
-      if ((m + 1) === currentMeetingNum) {
+      if (m === currentMeetingNum) {
         isPresentForTargetMeeting = isPresent;
         targetTechStatus = techStatus;
         targetParticipationStatus = participationStatus;
       }
     }
 
-    // Column P (16): Eligibility status. Missing ANY meeting disqualifies mastery
-    // (mastery requires all 4), so as soon as someone misses one, that's the meeting
-    // they're recorded against here - kept separate from the checkbox grid so it's
-    // a clear, explicit record of exactly which class knocked them out, not something
-    // you have to reconstruct by scanning checkboxes.
-    const ELIGIBILITY_COL = 16;
+    // Mentor rows are a purely informational record - no automated consequences
+    // (no feedback email, no eligibility tracking, no rollover, no mastery eval).
+    if (currentSection === "Mentor") continue;
+
+    // Everything below only applies to the Intern section.
+
     let currentEligibility = String(row[ELIGIBILITY_COL - 1] || "").trim();
     let alreadyIneligible = currentEligibility.length > 0;
 
@@ -183,7 +264,7 @@ function processMonthlyAttendance(trackType, currentMeetingNum) {
       // cohort right away (pre-task not required again - it's one-time).
       sheet.getRange(i + 1, ELIGIBILITY_COL).setValue(`Not eligible - missed Meeting ${currentMeetingNum}`);
       removeFromRemainingSessionsThisMonth(email, trackType);
-      rollInternToNextCohort(email, row[0], trackType, currentMeetingNum);
+      rollInternToNextCohort(email, name, trackType, currentMeetingNum);
     }
 
     // If this is Meeting 4, run final mastery evaluation and send the milestone report
@@ -194,9 +275,7 @@ function processMonthlyAttendance(trackType, currentMeetingNum) {
 
       let finalMasteryAchieved = hasAttendedAll && hasGoodTechTwice && hasBeenActiveTwice;
 
-      // Write final result to the Course Result column (Column Y / Index 25)
-      let resultColIndex = 25; 
-      sheet.getRange(i + 1, resultColIndex).setValue(finalMasteryAchieved ? "MASTERED" : "NOT MET");
+      sheet.getRange(i + 1, COURSE_RESULT_COL).setValue(finalMasteryAchieved ? "MASTERED" : "NOT MET");
 
       // Send the final milestone email report
       sendFinalMasteryEmail(email, finalMasteryAchieved, meetingsAttendedCount, techGoodCount, activeContributionCount);
